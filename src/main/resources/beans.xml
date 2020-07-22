@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<beans xmlns="http://innov8.dev/resources/schemas"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://innov8.dev/resources/schemas file:///home/wezley/repos/my-repos/innov8-dev/resources/registry-schema.xml">
+
+
+
+    <bean name="exampleRepo" class="dev.innov8.repositories.ExampleRepository" scope="singleton"/>
+
+    <bean name="prototypeService" class="dev.innov8.services.PrototypeService" scope="prototype">
+        <property name="someValue" value="testValue"/>
+    </bean>
+
+    <bean name="anotherService" class="dev.innov8.services.AnotherService" scope="singleton"/>
+
+    <bean name="exampleService" class="dev.innov8.services.ExampleService" scope="singleton">
+        <constructor-arg ref="exampleRepo"/>
+        <constructor-arg ref="anotherService"/>
+        <property name="prototype" ref="prototypeService"/>
+    </bean>
+
+
+</beans>
