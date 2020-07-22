@@ -36,80 +36,87 @@ public class AppContext implements AutoCloseable {
 
         try {
 
+            // Load and normalize the XML file using the registry location provided at instantiation
             File file = new File(registryLocation);
             Document registryDoc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file);
             registryDoc.normalizeDocument();
 
+            // Grab a list of all tags with the name "bean" and validate and extract the bean definition information from the registry document
             NodeList nodeList = registryDoc.getElementsByTagName("bean");
-
             for (int i = 0; i < nodeList.getLength(); i++) {
 
+                // Cast NodeList item into an Element
                 Element currentBeanElement = (Element) nodeList.item(i);
-                if (currentBeanElement.getNodeName().equals("bean")) {
 
-                    String currentBeanName = currentBeanElement.getAttribute("name");
-                    String currentBeanClassName = currentBeanElement.getAttribute("class");
-                    String currentBeanScope = currentBeanElement.getAttribute("scope");
+                // Extract bean element attributes into local references (name, class, and scope)
+                String currentBeanName = currentBeanElement.getAttribute("name");
+                String currentBeanClassName = currentBeanElement.getAttribute("class");
+                String currentBeanScope = currentBeanElement.getAttribute("scope");
 
-                    if (!isBeanNameValid(currentBeanName)) {
-                        throw new BeanRegistryParsingException("Invalid name attribute provided for bean element at index: " + i);
+                // Validate that the information from the registry document is proper
+                if (!isBeanNameValid(currentBeanName)) {
+                    throw new BeanRegistryParsingException("Invalid name attribute provided for bean element at index: " + i);
+                }
+
+                if (!isBeanNameUnique(currentBeanName)) {
+                    throw new BeanRegistryParsingException("Duplicate bean name found for bean element at index: " + 1);
+                }
+
+                if (!isBeanClassNameValid(currentBeanClassName)) {
+                    throw new BeanRegistryParsingException("Invalid class name provided for bean element at index: " + i);
+                }
+
+                if (isBeanScopeValid(currentBeanScope)) {
+                    throw new BeanRegistryParsingException("The bean, " + currentBeanName + ", specifies an invalid scope.");
+                }
+
+                // Once validated, begin creating the BeanDefinition object from the extracted data
+                BeanDefinition beanDefinition = new BeanDefinition(currentBeanName, currentBeanClassName, currentBeanScope);
+
+                // Grab a list of the constructor arguments (if any) specified by the bean definition declaration
+                NodeList constructorArgElements = currentBeanElement.getElementsByTagName("constructor-arg");
+                for (int j = 0; j < constructorArgElements.getLength(); j++) {
+
+                    Element constructorArgElement = (Element) constructorArgElements.item(j);
+                    String dependencyBeanName = constructorArgElement.getAttribute("ref");
+
+                    // Ensure that beans do not reference themselves as dependencies
+                    if (dependencyBeanName != null & !dependencyBeanName.equals(currentBeanName)) {
+                        beanDefinition.addConstructorDependencies(dependencyBeanName);
+                    } else {
+                        throw new BeanDefinitionCreationException(currentBeanName, new SelfReferencingBeanException(currentBeanName));
                     }
-
-                    if (!isBeanNameUnique(currentBeanName)) {
-                        throw new BeanRegistryParsingException("Duplicate bean name found for bean element at index: " + 1);
-                    }
-
-                    if (!isBeanClassNameValid(currentBeanClassName)) {
-                        throw new BeanRegistryParsingException("Invalid class name provided for bean element at index: " + i);
-                    }
-
-                    if (isBeanScopeValid(currentBeanScope)) {
-                        throw new BeanRegistryParsingException("The bean, " + currentBeanName + ", specifies an invalid scope.");
-                    }
-
-
-                    BeanDefinition beanDefinition = new BeanDefinition(currentBeanName, currentBeanClassName, currentBeanScope);
-
-                    NodeList constructorArgElements = currentBeanElement.getElementsByTagName("constructor-arg");
-
-                    for (int j = 0; j < constructorArgElements.getLength(); j++) {
-
-                        Element constructorArgElement = (Element) constructorArgElements.item(j);
-                        String dependencyBeanName = constructorArgElement.getAttribute("ref");
-
-                        if (dependencyBeanName != null & !dependencyBeanName.equals(currentBeanName)) {
-                            beanDefinition.addConstructorDependencies(dependencyBeanName);
-                        } else {
-                            throw new BeanDefinitionCreationException(currentBeanName, new SelfReferencingBeanException(currentBeanName));
-                        }
-
-                    }
-
-                    NodeList propertyElements = currentBeanElement.getElementsByTagName("property");
-
-                    for (int j = 0; j < propertyElements.getLength(); j++) {
-
-                        Element propertyElement = (Element) propertyElements.item(j);
-                        String propertyName = propertyElement.getAttribute("name");
-                        String propertyRef = propertyElement.getAttribute("ref");
-                        String propertyValue = propertyElement.getAttribute("value");
-
-                        if (propertyName.trim().equals("")) {
-                            throw new BeanRegistryParsingException("The bean, " + currentBeanName + ", has a property with no name!");
-                        }
-
-                        if (!propertyRef.trim().equals("")) {
-                            beanDefinition.addSetterDependency(propertyName, propertyRef);
-                        } else if (!propertyValue.trim().equals("")) {
-                            beanDefinition.addPropertyKeyWithValue(propertyName, propertyValue);
-                        } else {
-                            throw new BeanRegistryParsingException("The bean, " + currentBeanName + ", declares a property with no ref or value attributes.");
-                        }
-                    }
-
-                    registry.add(beanDefinition);
 
                 }
+
+                // Iterate across the property elements (if any) specified by the current bean definition declaration and
+                NodeList propertyElements = currentBeanElement.getElementsByTagName("property");
+                for (int j = 0; j < propertyElements.getLength(); j++) {
+
+                    Element propertyElement = (Element) propertyElements.item(j);
+                    String propertyName = propertyElement.getAttribute("name");
+                    String propertyRef = propertyElement.getAttribute("ref");
+                    String propertyValue = propertyElement.getAttribute("value");
+
+                    // TODO validate that the provided property names are actually on the specified bean class
+                    // Validate that the property names for the current bean definition are not empty
+                    if (propertyName.trim().equals("")) {
+                        throw new BeanRegistryParsingException("The bean, " + currentBeanName + ", has a property with no name!");
+                    }
+
+                    // Add property attributes to the bean definition
+                    if (!propertyRef.trim().equals("")) {
+                        beanDefinition.addSetterDependency(propertyName, propertyRef);
+                    } else if (!propertyValue.trim().equals("")) {
+                        beanDefinition.addPropertyKeyWithValue(propertyName, propertyValue);
+                    } else {
+                        throw new BeanRegistryParsingException("The bean, " + currentBeanName + ", declares a property with no ref or value attributes.");
+                    }
+                }
+
+                // Add the bean definition to the internal AppContext registry
+                registry.add(beanDefinition);
+
             }
 
         } catch (Exception e) {
@@ -154,10 +161,11 @@ public class AppContext implements AutoCloseable {
             // Determine if the bean has mandatory dependencies
             if (beanDefinition.hasMandatoryDependencies()) {
 
+                // Declare two empty lists: one for dependency classes, another for dependency bean instances
                 List<Class<?>> dependencyClasses = new ArrayList<>();
                 List<Object> dependencyBeans = new ArrayList<>();
 
-                // Iterate
+                // For each constructor dependency specified in the bean definition populate the class and bean lists
                 for (String dependencyName : beanDefinition.getConstructorDependencies()) {
 
                     BeanDefinition dependencyDef = getBeanDefinitionByBeanName(dependencyName);
@@ -170,25 +178,34 @@ public class AppContext implements AutoCloseable {
 
                 }
 
+                // Convert dependency class list to a primitive array
                 Class<?>[] classArray = new Class<?>[dependencyClasses.size()];
                 classArray = dependencyClasses.toArray(classArray);
 
+                // Convert dependency bean instance list to a primitive array
                 Object[] dependencyArray = new Object[dependencyBeans.size()];
                 dependencyArray = dependencyBeans.toArray(dependencyArray);
 
+                // Obtain the proper constructor for bean using the dependency class array
                 Constructor<?> constructor = beanDefinition.getBeanClass().getDeclaredConstructor(classArray);
+
+                // Instantiate the bean using the dependency bean instance array
                 bean = (T) constructor.newInstance(dependencyArray);
 
             } else {
+
+                // Instantiate the bean using a no-args constructor
                 bean = (T) beanDefinition.getBeanClass().newInstance();
             }
 
+            // Populate the properties of the instantiated bean using the setter dependencies and property values specified in the bean definition
             populateProperties(bean, beanDefinition.getSetterDependencies(), beanDefinition.getPropertyValues());
 
         } catch (Exception e) {
             throw new BeanCreationException(beanDefinition.getBeanName(), e);
         }
 
+        // Return the fully instantiated bean
         return bean;
 
     }
